@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FocusTube</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #000000;
+            --ui-color: rgba(255, 255, 255, 0.4);
+            --ui-hover: rgba(255, 255, 255, 1);
+            --accent: #ffffff;
+            --normal-width: 1000px;
+            --transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: white;
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* --- Landing View --- */
+        #landing-view {
+            width: 100%;
+            max-width: 450px;
+            text-align: center;
+            z-index: 20;
+            transition: opacity 0.8s ease;
+        }
+
+        input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 15px 0;
+            color: white;
+            font-size: 1.2rem;
+            font-weight: 300;
+            outline: none;
+            text-align: center;
+            transition: border-color 0.4s;
+        }
+
+        input:focus { border-color: var(--accent); }
+        input::placeholder { color: #333; }
+
+        /* --- Player View --- */
+        #player-view {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease;
+        }
+
+        .video-wrapper {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+        }
+
+        /* Mode: Normal (Fixed Center) */
+        .mode-normal .video-container {
+            width: 90%;
+            max-width: var(--normal-width);
+            aspect-ratio: 16 / 9;
+            box-shadow: 0 30px 100px rgba(0,0,0,1), 0 0 0 1px rgba(255,255,255,0.05);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        /* Mode: Focus (Full Width) */
+        .mode-focus .video-container {
+            width: 100%;
+            height: 80vh;
+            max-width: none;
+            border-radius: 0;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* --- HUD (Heads Up Display) --- */
+        .hud {
+            position: fixed;
+            z-index: 30;
+            padding: 30px 40px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            display: flex;
+            align-items: center;
+            width: 100%;
+        }
+
+        .hud.top { top: 0; justify-content: space-between; }
+        .hud.bottom { bottom: 0; justify-content: flex-end; gap: 30px; }
+
+        #video-title {
+            font-size: 0.85rem;
+            font-weight: 400;
+            letter-spacing: 0.05em;
+            color: var(--ui-color);
+            max-width: 50%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .btn {
+            background: none;
+            border: none;
+            color: var(--ui-color);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            cursor: pointer;
+            pointer-events: all;
+            transition: color 0.3s;
+        }
+
+        .btn:hover { color: var(--ui-hover); }
+        .btn.active { color: var(--accent); }
+
+        /* --- States --- */
+        body.watching #landing-view { opacity: 0; pointer-events: none; }
+        body.watching #player-view { opacity: 1; pointer-events: all; }
+        
+        body.ui-visible .hud { opacity: 1; }
+        body.ui-visible.watching { cursor: default; }
+        body.watching:not(.ui-visible) { cursor: none; }
+    </style>
+</head>
+<body class="mode-normal">
+
+    <!-- Input Section -->
+    <div id="landing-view">
+        <input type="text" id="url-input" placeholder="Paste YouTube link and press enter" autocomplete="off" spellcheck="false">
+    </div>
+
+    <!-- HUD Overlay -->
+    <div class="hud top">
+        <span id="video-title">No video loaded</span>
+        <div style="display: flex; gap: 20px;">
+            <button class="btn" id="btn-normal" onclick="setMode('normal')">Normal</button>
+            <button class="btn" id="btn-focus" onclick="setMode('focus')">Focus</button>
+        </div>
+    </div>
+
+    <div class="hud bottom">
+        <button class="btn" onclick="reset()">Change Video</button>
+    </div>
+
+    <!-- Video Viewport -->
+    <div id="player-view">
+        <div class="video-wrapper">
+            <div class="video-container" id="player-slot"></div>
+        </div>
+    </div>
+
+    <script>
+        const body = document.body;
+        const input = document.getElementById('url-input');
+        const titleEl = document.getElementById('video-title');
+        const playerSlot = document.getElementById('player-slot');
+        let uiTimer;
+
+        // 1. Handle Input
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') loadVideo(input.value);
+        });
+
+        async function loadVideo(url) {
+            const id = extractID(url);
+            if (!id) return;
+
+            // Fetch metadata (No-Embed API)
+            try {
+                const res = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${id}`);
+                const data = await res.json();
+                titleEl.innerText = data.title || "Untitled Video";
+            } catch (e) {
+                titleEl.innerText = "Untitled Video";
+            }
+
+            // Inject Player
+            playerSlot.innerHTML = `<iframe src="https://www.youtube.com/embed/${id}?&rel=0&modestbranding=1&showinfo=0" allow="fullscreen"></iframe>`;
+            
+            body.classList.add('watching');
+            setMode('normal'); // Default to normal
+            showUI();
+        }
+
+        function extractID(url) {
+            const reg = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
+            const match = url.match(reg);
+            return (match && match[7].length == 11) ? match[7] : (url.length == 11 ? url : null);
+        }
+
+        // 2. Mode Management
+        function setMode(mode) {
+            body.classList.remove('mode-normal', 'mode-focus');
+            body.classList.add(`mode-${mode}`);
+            
+            // UI Active State
+            document.getElementById('btn-normal').classList.toggle('active', mode === 'normal');
+            document.getElementById('btn-focus').classList.toggle('active', mode === 'focus');
+        }
+
+        // 3. UI Interaction (Auto-hide)
+        function showUI() {
+            body.classList.add('ui-visible');
+            clearTimeout(uiTimer);
+            
+            if (body.classList.contains('watching')) {
+                uiTimer = setTimeout(() => {
+                    body.classList.remove('ui-visible');
+                }, 3000);
+            }
+        }
+
+        document.addEventListener('mousemove', showUI);
+        document.addEventListener('mousedown', showUI);
+
+        function reset() {
+            body.classList.remove('watching', 'ui-visible');
+            playerSlot.innerHTML = '';
+            input.value = '';
+            titleEl.innerText = 'No video loaded';
+            setTimeout(() => input.focus(), 800);
+        }
+    </script>
+</body>
+</html>
